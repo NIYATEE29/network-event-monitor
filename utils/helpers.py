@@ -10,3 +10,11 @@ def is_duplicate(event):
 
 def sort_events(events):
     return sorted(events, key=lambda x: x["timestamp"])
+
+def parse_message(message: str):
+    parts = message.split("|")
+
+    if len(parts) != 2:
+        return "INVALID", None
+
+    return parts[0], parts[1]
