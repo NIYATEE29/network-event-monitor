@@ -1,98 +1,153 @@
+# server/server.py
+
 import socket
+import ssl
 import threading
 import queue
-import base64
 import time
 
-# 🔗 IMPORT PROCESSOR (IMPORTANT LINK)
-from processor.processor import EventProcessor
+from server.config import *
+from utils.logger import log_event
+from utils.helpers import parse_message, is_duplicate
 
-SERVER_IP = "0.0.0.0"
-SERVER_PORT = 9999
 
-server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+# ---------------------------
+# SSL CONTEXT
+# ---------------------------
+context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+context.load_cert_chain(certfile=CERT_FILE, keyfile=KEY_FILE)
+
+
+# ---------------------------
+# SOCKET SETUP (TCP)
+# ---------------------------
+server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server_socket.bind((SERVER_IP, SERVER_PORT))
+server_socket.listen(5)
+
+print(f"[SECURE SERVER STARTED] {SERVER_IP}:{SERVER_PORT}")
+
 
 buffer = queue.Queue()
-clients = set()
-
-# 🔗 CREATE PROCESSOR INSTANCE
-processor = EventProcessor()
-
-print(f"[SERVER STARTED] {SERVER_IP}:{SERVER_PORT}")
+clients = {}
+total_packets = 0
+start_time = time.time()
 
 
-# 🔐 SIMPLE ENCRYPTION (simulation)
-def encrypt(msg):
-    return base64.b64encode(msg.encode())
+# ---------------------------
+# CLIENT HANDLER
+# ---------------------------
+def handle_client(conn, addr):
+    global total_packets
 
-def decrypt(msg):
-    return base64.b64decode(msg).decode()
+    print(f"[CONNECTED] {addr}")
 
-
-# 📥 RECEIVE THREAD
-def receive_packets():
     while True:
         try:
-            data, addr = server_socket.recvfrom(1024)
+            data = conn.recv(BUFFER_SIZE)
 
-            if addr not in clients:
-                clients.add(addr)
-                print(f"[NEW CLIENT] {addr}")
+            if not data:
+                break
 
-            buffer.put((data, addr))
+            message = data.decode()
 
-        except Exception as e:
-            print(f"[ERROR RECEIVE] {e}")
+            msg_type, value = parse_message(message)
 
+            event = {
+                "node_id": str(addr),
+                "type": msg_type,
+                "value": value,
+                "timestamp": time.time()
+            }
 
-# 🧠 PROCESS THREAD (NOW CONNECTED TO PROCESSOR)
-def process_packets():
-    while True:
-        data, addr = buffer.get()
-
-        try:
-            # 🔓 Step 1: Decrypt
-            message = decrypt(data)
-
-            # 🔗 Step 2: SEND TO PROCESSOR
-            processed_event = processor.process_event(message)
-
-            # ❗ If duplicate or invalid → skip
-            if processed_event is None:
+            if is_duplicate(event):
+                log_event(f"[DUPLICATE] {event}")
                 continue
 
-            # 📊 Step 3: Display processed result
-            print(f"\n[PROCESSED EVENT]")
-            print(processed_event)
+            buffer.put((event, conn))
 
-            # 📊 OPTIONAL DASHBOARD
-            display_dashboard(processor.events)
-
-            # 🔁 Step 4: Send ACK
-            response = encrypt(f"ACK: {processed_event['event_type']}")
-            server_socket.sendto(response, addr)
+            total_packets += 1
 
         except Exception as e:
-            print(f"[ERROR PROCESS] {e}")
+            log_event(f"[ERROR RECEIVE] {e}")
+            break
+
+    conn.close()
+    print(f"[DISCONNECTED] {addr}")
 
 
-# 📊 DASHBOARD FUNCTION
-def display_dashboard(events):
-    print("\033[H\033[J")  # clear screen
-    print("===== LIVE DASHBOARD =====")
+# ---------------------------
+# PROCESS THREAD
+# ---------------------------
+def process_packets():
+    while True:
+        event, conn = buffer.get()
 
-    for e in events[-10:]:
-        print(f"{e['node_id']} | {e['event_type']} | {e['severity']} | {e['timestamp']}")
+        try:
+            log_event(event)
+
+            msg_type = event["type"]
+
+            if msg_type == "CPU":
+                response = "CPU RECEIVED"
+
+            elif msg_type == "MEMORY":
+                response = "MEMORY RECEIVED"
+
+            elif msg_type == "PING":
+                response = "PONG"
+
+            elif msg_type == "ADMIN":
+                response = f"CLIENTS:{len(clients)}"
+
+            else:
+                response = "INVALID"
+
+            conn.send(response.encode())
+
+        except Exception as e:
+            log_event(f"[ERROR PROCESS] {e}")
 
 
-# 🚀 START THREADS
-threading.Thread(target=receive_packets, daemon=True).start()
+# ---------------------------
+# METRICS THREAD
+# ---------------------------
+def show_metrics():
+    while True:
+        time.sleep(5)
+        elapsed = time.time() - start_time
 
-for _ in range(5):
+        if elapsed > 0:
+            throughput = total_packets / elapsed
+            print(f"[METRICS] {throughput:.2f} packets/sec")
+
+
+# ---------------------------
+# ACCEPT CLIENTS
+# ---------------------------
+def accept_clients():
+    while True:
+        client_socket, addr = server_socket.accept()
+
+        secure_conn = context.wrap_socket(client_socket, server_side=True)
+
+        clients[addr] = True
+
+        thread = threading.Thread(target=handle_client, args=(secure_conn, addr))
+        thread.start()
+
+
+# ---------------------------
+# START THREADS
+# ---------------------------
+threading.Thread(target=accept_clients, daemon=True).start()
+
+for _ in range(WORKER_THREADS):
     threading.Thread(target=process_packets, daemon=True).start()
 
+threading.Thread(target=show_metrics, daemon=True).start()
 
-# 🔄 KEEP SERVER RUNNING
+
+# Keep server alive
 while True:
     pass
