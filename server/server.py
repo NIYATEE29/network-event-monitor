@@ -6,7 +6,7 @@ import threading
 import queue
 import time
 
-from server.config import *
+from config import *
 from utils.logger import log_event
 from utils.helpers import parse_message, is_duplicate
 
@@ -20,7 +20,7 @@ context.load_cert_chain(certfile=CERT_FILE, keyfile=KEY_FILE)
 
 # ---------------------------
 # SOCKET SETUP (TCP)
-# ---------------------------
+# ---------------------------   
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server_socket.bind((SERVER_IP, SERVER_PORT))
 server_socket.listen(5)
