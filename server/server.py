@@ -1,4 +1,9 @@
-# server/server.py
+import threading
+dashboard_lock = threading.Lock()
+import sys
+import os
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import socket
 import ssl
@@ -11,16 +16,17 @@ from utils.logger import log_event
 from utils.helpers import parse_message, is_duplicate
 
 
-# ---------------------------
-# SSL CONTEXT
-# ---------------------------
+buffer = queue.Queue()
+clients = {}
+events = []
+total_packets = 0
+start_time = time.time()
+
+
 context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 context.load_cert_chain(certfile=CERT_FILE, keyfile=KEY_FILE)
 
 
-# ---------------------------
-# SOCKET SETUP (TCP)
-# ---------------------------   
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server_socket.bind((SERVER_IP, SERVER_PORT))
 server_socket.listen(5)
@@ -28,126 +34,117 @@ server_socket.listen(5)
 print(f"[SECURE SERVER STARTED] {SERVER_IP}:{SERVER_PORT}")
 
 
-buffer = queue.Queue()
-clients = {}
-total_packets = 0
-start_time = time.time()
+def classify(event):
+    if event["type"] == "CPU":
+        return "HIGH" if event["value"] > 80 else "NORMAL"
+    if event["type"] == "MEMORY":
+        return "HIGH" if event["value"] > 70 else "NORMAL"
+    return "OK"
 
 
-# ---------------------------
-# CLIENT HANDLER
-# ---------------------------
+def display_dashboard():
+    with dashboard_lock:
+        print("\033[H\033[J", end="")  # clear screen properly
+
+        print("===== LIVE SYSTEM MONITOR =====\n")
+        print(f"{'Node':<20}{'Type':<10}{'Value':<10}{'Status':<10}")
+        print("-" * 60)
+
+        for e in events[-10:]:
+            node = f"{e['node_id']}"  # keep for now, we'll clean later
+            print(f"{node:<20}{e['type']:<10}{e['value']:<10}{classify(e):<10}")
+
+        print("\nClients:", len(clients))
+
+
 def handle_client(conn, addr):
     global total_packets
 
+    clients[addr] = True
     print(f"[CONNECTED] {addr}")
 
     while True:
         try:
             data = conn.recv(BUFFER_SIZE)
-
             if not data:
                 break
 
-            message = data.decode()
+            messages = data.decode().split("\n")
 
-            msg_type, value = parse_message(message)
+            for msg in messages:
+                if not msg.strip():
+                    continue
 
-            event = {
-                "node_id": str(addr),
-                "type": msg_type,
-                "value": value,
-                "timestamp": time.time()
-            }
+                msg_type, value = parse_message(msg)
 
-            if is_duplicate(event):
-                log_event(f"[DUPLICATE] {event}")
-                continue
+                if msg_type is None:
+                    conn.send("INVALID".encode())
+                    continue
 
-            buffer.put((event, conn))
+                event = {
+                 "node_id": f"{addr[0]}:{addr[1]}",
+                 "type": msg_type,
+                 "value": value,
+                 "timestamp": time.time()
+}
 
-            total_packets += 1
+                if is_duplicate(event):
+                    continue
 
-        except Exception as e:
-            log_event(f"[ERROR RECEIVE] {e}")
+                buffer.put((event, conn))
+                total_packets += 1
+
+        except:
             break
 
     conn.close()
+    clients.pop(addr, None)
     print(f"[DISCONNECTED] {addr}")
 
 
-# ---------------------------
-# PROCESS THREAD
-# ---------------------------
 def process_packets():
     while True:
         event, conn = buffer.get()
 
-        try:
-            log_event(event)
+        log_event(event)
+        events.append(event)
+        if len(events) % 2 == 0:   # update every 2 events (prevents flicker)
+         display_dashboard()
 
-            msg_type = event["type"]
+        if event["type"] == "CPU":
+            response = "CPU RECEIVED"
+        elif event["type"] == "MEMORY":
+            response = "MEMORY RECEIVED"
+        elif event["type"] == "PING":
+            response = "PONG"
+        else:
+            response = "INVALID"
 
-            if msg_type == "CPU":
-                response = "CPU RECEIVED"
-
-            elif msg_type == "MEMORY":
-                response = "MEMORY RECEIVED"
-
-            elif msg_type == "PING":
-                response = "PONG"
-
-            elif msg_type == "ADMIN":
-                response = f"CLIENTS:{len(clients)}"
-
-            else:
-                response = "INVALID"
-
-            conn.send(response.encode())
-
-        except Exception as e:
-            log_event(f"[ERROR PROCESS] {e}")
+        conn.send(response.encode())
 
 
-# ---------------------------
-# METRICS THREAD
-# ---------------------------
-def show_metrics():
+def metrics():
     while True:
         time.sleep(5)
         elapsed = time.time() - start_time
-
-        if elapsed > 0:
-            throughput = total_packets / elapsed
-            print(f"[METRICS] {throughput:.2f} packets/sec")
+        print(f"\n[METRICS] {total_packets/elapsed:.2f} packets/sec")
 
 
-# ---------------------------
-# ACCEPT CLIENTS
-# ---------------------------
 def accept_clients():
     while True:
         client_socket, addr = server_socket.accept()
-
         secure_conn = context.wrap_socket(client_socket, server_side=True)
 
-        clients[addr] = True
-
-        thread = threading.Thread(target=handle_client, args=(secure_conn, addr))
-        thread.start()
+        threading.Thread(target=handle_client, args=(secure_conn, addr), daemon=True).start()
 
 
-# ---------------------------
-# START THREADS
-# ---------------------------
 threading.Thread(target=accept_clients, daemon=True).start()
 
 for _ in range(WORKER_THREADS):
     threading.Thread(target=process_packets, daemon=True).start()
 
-threading.Thread(target=show_metrics, daemon=True).start()
+threading.Thread(target=metrics, daemon=True).start()
 
 
-# Keep server alive
 while True:
-    pass
+    time.sleep(1)

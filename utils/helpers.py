@@ -1,20 +1,24 @@
 seen_events = set()
 
 def is_duplicate(event):
-    event_id = f"{event['node_id']}_{event['timestamp']}"
-    if event_id in seen_events:
+    key = f"{event['node_id']}_{event['timestamp']}"
+    if key in seen_events:
         return True
-    seen_events.add(event_id)
+    seen_events.add(key)
     return False
 
 
-def sort_events(events):
-    return sorted(events, key=lambda x: x["timestamp"])
+def parse_message(message):
+    try:
+        if ":" not in message:
+            return None, None
 
-def parse_message(message: str):
-    parts = message.split("|")
+        msg_type, value = message.split(":", 1)
 
-    if len(parts) != 2:
-        return "INVALID", None
+        msg_type = msg_type.strip().upper()
+        value = int(float(value.strip()))
 
-    return parts[0], parts[1]
+        return msg_type, value
+
+    except:
+        return None, None
