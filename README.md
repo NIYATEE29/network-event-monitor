@@ -181,7 +181,8 @@ Server will print `[RATE LIMIT] addr blocked` and respond with `RATE LIMIT EXCEE
 - `psutil` is optional. If not installed, CPU and memory values are randomly generated.
 - Log output is written to `data/events.log` (auto-created on first run).
 
-##Contributors
--Nikita Mankani
--Niyatee Singh
--Nehaa Joshi
+### 👩‍💻 Contributors
+- [Niyatee Singh](https://github.com/NIYATEE29)
+- [Nehaa Joshi](https://github.com/NehaaJ05)
+- [Nikita Mankani](https://github.com/nikitamankani)
+
