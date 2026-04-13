@@ -29,11 +29,22 @@ def generate_event():
 
 
 def start_client(node_id):
-    # 🔐 SECURE SSL CONTEXT (server verification enabled)
+
+    # SSL CONTEXT SETUP
     context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
-    context.load_verify_locations("../server/cert.pem")  # adjust if needed
-    context.verify_mode = ssl.CERT_REQUIRED
-    context.check_hostname = False  # since self-signed
+
+    # =========================
+    #  SECURE MODE 
+    # =========================
+    #context.load_verify_locations("../server/cert.pem")
+    #context.verify_mode = ssl.CERT_REQUIRED
+    #context.check_hostname = False
+
+    # =========================
+    #  INSECURE MODE
+    # =========================
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
 
     while True:
         try:
@@ -43,7 +54,10 @@ def start_client(node_id):
             print(f"[Client {node_id}] Connecting to {SERVER_IP}:{SERVER_PORT}...")
             secure_sock.connect((SERVER_IP, SERVER_PORT))
 
+            #  SHOW SSL INFO (IMPORTANT FOR DEMO)
+            cert = secure_sock.getpeercert()
             print(f"[Client {node_id}] Connected securely ✅")
+            print(f"[Client {node_id}] Server Certificate: {cert}\n")
 
             while True:
                 message = generate_event()

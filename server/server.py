@@ -21,10 +21,10 @@ events = []
 total_packets = 0
 start_time = time.time()
 
-# 🔥 RATE LIMIT STORAGE
+#  RATE LIMIT STORAGE
 client_requests = {}
 
-# 🔐 SSL SETUP
+#  SSL SETUP
 context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 context.load_cert_chain(certfile=CERT_FILE, keyfile=KEY_FILE)
 
@@ -71,7 +71,7 @@ def handle_client(conn, addr):
 
             current_time = time.time()
 
-            # 🔥 RATE LIMIT LOGIC
+            #  RATE LIMIT LOGIC
             if addr not in client_requests:
                 client_requests[addr] = []
 
